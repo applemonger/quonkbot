@@ -1,5 +1,5 @@
 import pytest
-from database import (
+from bot.database import (
     Database,
     InvalidSharesException,
     NotEnoughCashException,

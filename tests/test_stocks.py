@@ -1,5 +1,5 @@
 import pytest
-from stocks import QuoteException, get_stock_price
+from bot.stocks import QuoteException, get_stock_price
 
 
 def test_get_stock_price():
