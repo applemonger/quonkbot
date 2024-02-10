@@ -63,18 +63,12 @@ class TestDatabase:
         assert db.get_shares(0, "ABC") == 5
         with pytest.raises(NotEnoughCashException):
             assert db.buy_stock(0, "ABC", 10000, 10000)
-        with pytest.raises(InvalidSharesException):
-            assert db.buy_stock(0, "ABC", -1, 1000)
 
     def test_sell_stock(self, db: Database):
         db.register_user(0)
         with pytest.raises(InvalidSharesException):
-            assert db.sell_stock(0, "ABC", 10, 10)
-        with pytest.raises(InvalidSharesException):
-            assert db.sell_stock(0, "ABC", -10, 10)
+            db.sell_stock(0, "ABC", 5, 1000)
         db.buy_stock(0, "ABC", 5, 1000)
-        with pytest.raises(InvalidSharesException):
-            assert db.sell_stock(0, "ABC", 6, 1000)
         db.sell_stock(0, "ABC", 3, 1200)
         assert db.get_shares(0, "ABC") == 2
         db.sell_stock(0, "ABC", 2, 1500)

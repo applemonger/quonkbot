@@ -6,7 +6,6 @@ import yfinance as yf
 import logging
 from database import (
     Database,
-    InvalidSharesException,
     NotEnoughCashException,
     UserExistsException,
 )
@@ -23,6 +22,11 @@ bot = lightbulb.BotApp(
 
 
 db = Database()
+
+
+def get_stock_price(ticker: str) -> float:
+    yf_ticker = yf.Ticker(ticker)
+    return yf_ticker.info.get("currentPrice")
 
 
 @bot.command
@@ -44,8 +48,7 @@ async def register(ctx: lightbulb.Context) -> None:
 async def quote(ctx: lightbulb.Context) -> None:
     try:
         # Get ticker information
-        ticker = yf.Ticker(ctx.options.ticker)
-        price = ticker.info.get("currentPrice")
+        price = get_stock_price(ctx.options.ticker)
         # Create embed
         embed = hikari.Embed(title=ctx.options.ticker, color=COLOR)
         embed.add_field(name="Price", value=price)
@@ -79,8 +82,7 @@ async def holdings(ctx: lightbulb.Context) -> None:
     # Get ticker information
     for holding in db.get_holdings(member_id):
         # Get current price
-        ticker = yf.Ticker(holding.ticker)
-        price = ticker.info.get("currentPrice")
+        price = get_stock_price(holding.ticker)
         # Calculate current value based on current price
         value = db.get_value(member_id, holding.ticker, price)
         # Add the value to our total value
@@ -121,8 +123,7 @@ async def buy(ctx: lightbulb.Context):
     shares = int(ctx.options.shares)
     # Get price
     try:
-        yf_ticker = yf.Ticker(ticker)
-        yf_price = yf_ticker.info.get("currentPrice")
+        yf_price = get_stock_price(ctx.options.ticker)
     except Exception:
         await ctx.respond(
             f"Unable to get price for ticker: ${ticker}",
@@ -135,8 +136,6 @@ async def buy(ctx: lightbulb.Context):
         await ctx.respond(
             f"<@{member_id}> bought {shares} shares of ${ticker} @ ${yf_price:.2f}."
         )
-    except InvalidSharesException as e:
-        await ctx.respond(e, flags=hikari.MessageFlag.EPHEMERAL)
     except NotEnoughCashException as e:
         await ctx.respond(e, flags=hikari.MessageFlag.EPHEMERAL)
     except Exception as e:
@@ -177,8 +176,6 @@ async def sell(ctx: lightbulb.Context):
         await ctx.respond(
             f"<@{member_id}> sold {shares} shares of ${ticker} @ ${yf_price:2f}."
         )
-    except InvalidSharesException as e:
-        await ctx.respond(e, flags=hikari.MessageFlag.EPHEMERAL)
     except Exception as e:
         logging.error(e)
         pass

@@ -10,11 +10,11 @@ class UserExistsException(Exception):
     pass
 
 
-class InvalidSharesException(Exception):
+class NotEnoughCashException(Exception):
     pass
 
 
-class NotEnoughCashException(Exception):
+class InvalidSharesException(Exception):
     pass
 
 
