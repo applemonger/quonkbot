@@ -131,9 +131,6 @@ class Database:
         return self.trunc(result[0])
 
     def buy_stock(self, member_id: int, ticker: str, shares: int, price: float):
-        # Reject attempts to buy zero or negative shares.
-        if shares <= 0:
-            raise InvalidSharesException("You cannot buy zero or negative shares.")
         # Get current cash on hand
         cash = self.get_cash(member_id)
         # Reject attempts to buy more than they have cash for
@@ -149,9 +146,6 @@ class Database:
             self.add_holding(member_id, ticker, shares, price)
 
     def sell_stock(self, member_id: int, ticker: str, shares: int, price: float):
-        # Reject attempts to buy zero or negative shares.
-        if shares <= 0:
-            raise InvalidSharesException("You cannot sell zero or negative shares")
         # Get current number of shares.
         current_holding = self.get_shares(member_id, ticker)
         # Reject attempts to sell more shares than they own.
