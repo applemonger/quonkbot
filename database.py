@@ -10,6 +10,10 @@ class UserExistsException(Exception):
     pass
 
 
+class UserDoesNotExistException(Exception):
+    pass
+
+
 class NotEnoughCashException(Exception):
     pass
 
@@ -66,6 +70,10 @@ class Database:
         result = self.db.execute(query, [member_id]).fetchone()
         user_exists = int(result[0]) == 1
         return user_exists
+
+    def validate_user(self, member_id: int):
+        if not self.user_exists(member_id):
+            raise UserDoesNotExistException("User does not exist!")
 
     def get_cash(self, member_id: int) -> float:
         query = "SELECT cash FROM CASH WHERE id = ?"

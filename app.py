@@ -1,15 +1,17 @@
 import lightbulb
 import hikari
 import os
-import yfinance as yf
-import logging
 from database import (
     Database,
+    InvalidSharesException,
     NotEnoughCashException,
+    UserDoesNotExistException,
     UserExistsException,
 )
 from textwrap import dedent
 from dotenv import load_dotenv
+from stocks import QuoteException, get_stock_price
+from errors import handle_exceptions
 
 load_dotenv()
 
@@ -25,18 +27,13 @@ bot = lightbulb.BotApp(
 db = Database()
 
 
-def get_stock_price(ticker: str) -> float:
-    yf_ticker = yf.Ticker(ticker)
-    return yf_ticker.info.get("currentPrice")
-
-
 @bot.command
 @lightbulb.command("help", "Learn more about QuonkBot!")
 @lightbulb.implements(lightbulb.SlashCommand)
 async def help(ctx: lightbulb.Context) -> None:
     embed = hikari.Embed(title="QuonkBot Help", color=COLOR)
     value = """
-        QuonkBot allows you to paper trade Q-shares of most known stocks. 
+        QuonkBot allows you to paper trade Q-Shares of most known stocks. 
         1. Use the `/register` command to get started with a cash balance of $10,000.
         2. Use the `/quote` command to get price quotes on stocks.
         3. Use the `/buy` command to buy shares of stocks.
@@ -59,45 +56,35 @@ async def help(ctx: lightbulb.Context) -> None:
 @bot.command
 @lightbulb.command("register", "Registers the user and gives you $10,000.")
 @lightbulb.implements(lightbulb.SlashCommand)
+@handle_exceptions(UserExistsException)
 async def register(ctx: lightbulb.Context) -> None:
     member_id = int(ctx.author.id)
-    try:
-        db.register_user(member_id)
-        await ctx.respond(f"Successfully registered user: <@{member_id}>")
-    except UserExistsException as e:
-        await ctx.respond(e, flags=hikari.MessageFlag.EPHEMERAL)
+    db.register_user(member_id)
+    await ctx.respond(f"Successfully registered user: <@{member_id}>")
 
 
 @bot.command
 @lightbulb.option("ticker", "Stock ticker", type=str)
 @lightbulb.command("quote", "Responds with a ticker quote")
 @lightbulb.implements(lightbulb.SlashCommand)
+@handle_exceptions(QuoteException)
 async def quote(ctx: lightbulb.Context) -> None:
-    try:
-        # Get ticker information
-        price = get_stock_price(ctx.options.ticker)
-        # Create embed
-        embed = hikari.Embed(title=ctx.options.ticker, color=COLOR)
-        embed.add_field(name="Price", value=price)
-        await ctx.respond(embed, flags=hikari.MessageFlag.EPHEMERAL)
-    except Exception:
-        await ctx.respond(
-            f"Unable to quote ticker: ${ctx.options.ticker}",
-            flags=hikari.MessageFlag.EPHEMERAL,
-        )
+    # Get ticker information
+    price = get_stock_price(ctx.options.ticker)
+    # Create embed
+    embed = hikari.Embed(title=ctx.options.ticker, color=COLOR)
+    embed.add_field(name="Price", value=price)
+    await ctx.respond(embed, flags=hikari.MessageFlag.EPHEMERAL)
 
 
 @bot.command
 @lightbulb.command("holdings", "Shows your current stock holdings and values")
 @lightbulb.implements(lightbulb.SlashCommand)
+@handle_exceptions(QuoteException, UserDoesNotExistException)
 async def holdings(ctx: lightbulb.Context) -> None:
-    # Member id
+    # Format and validate user
     member_id = int(ctx.author.id)
-    if not db.user_exists(member_id):
-        await ctx.respond(
-            "Please use /register first to register yourself and receive a starting balance."
-        )
-        return
+    db.validate_user(member_id)
     # Create embed
     embed = hikari.Embed(title="Your Holdings", color=COLOR)
     # Track total
@@ -138,74 +125,41 @@ async def holdings(ctx: lightbulb.Context) -> None:
 @lightbulb.option("ticker", "The stock you want to buy", type=str)
 @lightbulb.command("buy", "Buy stocks")
 @lightbulb.implements(lightbulb.SlashCommand)
+@handle_exceptions(QuoteException, UserDoesNotExistException, NotEnoughCashException)
 async def buy(ctx: lightbulb.Context):
-    # Member id
+    # Format and validate inputs
     member_id = int(ctx.author.id)
-    if not db.user_exists(member_id):
-        await ctx.respond(
-            "Please use /register first to register yourself and receive a starting balance."
-        )
-        return
+    db.validate_user(member_id)
     ticker = str(ctx.options.ticker).upper()
     shares = int(ctx.options.shares)
     # Get price
-    try:
-        yf_price = get_stock_price(ctx.options.ticker)
-    except Exception:
-        await ctx.respond(
-            f"Unable to get price for ticker: ${ticker}",
-            flags=hikari.MessageFlag.EPHEMERAL,
-        )
-        return
+    yf_price = get_stock_price(ctx.options.ticker)
     # Buy stock
-    try:
-        db.buy_stock(member_id, ticker, shares, yf_price)
-        await ctx.respond(
-            f"<@{member_id}> bought {shares} shares of ${ticker} @ ${yf_price:.2f}."
-        )
-    except NotEnoughCashException as e:
-        await ctx.respond(e, flags=hikari.MessageFlag.EPHEMERAL)
-    except Exception as e:
-        logging.error(e)
-        pass
+    db.buy_stock(member_id, ticker, shares, yf_price)
+    await ctx.respond(
+        f"<@{member_id}> bought {shares} shares of ${ticker} @ ${yf_price:.2f}."
+    )
 
 
 @bot.command
-@lightbulb.option(
-    "shares", "Number of shares you would like to sell", type=int, min_value=1
-)
-@lightbulb.option("ticker", "The stock you would like to sell", type=str)
+@lightbulb.option("shares", "Number of shares to sell", type=int, min_value=1)
+@lightbulb.option("ticker", "The stock to sell", type=str)
 @lightbulb.command("sell", "Sell stocks")
 @lightbulb.implements(lightbulb.SlashCommand)
+@handle_exceptions(QuoteException, UserDoesNotExistException, InvalidSharesException)
 async def sell(ctx: lightbulb.Context):
     # Member id
     member_id = int(ctx.author.id)
-    if not db.user_exists(member_id):
-        await ctx.respond(
-            "Please use /register first to register yourself and receive a starting balance."
-        )
-        return
+    db.validate_user(member_id)
     ticker = str(ctx.options.ticker).upper()
     shares = int(ctx.options.shares)
     # Get price
-    try:
-        yf_ticker = yf.Ticker(ticker)
-        yf_price = yf_ticker.info.get("currentPrice")
-    except Exception:
-        await ctx.respond(
-            f"Unable to get price for ticker: ${ticker}",
-            flags=hikari.MessageFlag.EPHEMERAL,
-        )
-        return
+    yf_price = get_stock_price(ticker)
     # Buy stock
-    try:
-        db.sell_stock(member_id, ticker, shares, yf_price)
-        await ctx.respond(
-            f"<@{member_id}> sold {shares} shares of ${ticker} @ ${yf_price:2f}."
-        )
-    except Exception as e:
-        logging.error(e)
-        pass
+    db.sell_stock(member_id, ticker, shares, yf_price)
+    await ctx.respond(
+        f"<@{member_id}> sold {shares} shares of ${ticker} @ ${yf_price:2f}."
+    )
 
 
 if __name__ == "__main__":
