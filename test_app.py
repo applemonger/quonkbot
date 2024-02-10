@@ -53,44 +53,14 @@ class TestDatabase:
     def test_get_shares(self, db: Database):
         db.register_user(0)
         assert db.get_shares(0, "ABC") == 0
-        db.add_stock(0, "ABC", 10, 10)
+        db.add_holding(0, "ABC", 10, 10)
         assert db.get_shares(0, "ABC") == 10
-
-    def test_holding_exists(self, db: Database):
-        db.register_user(0)
-        db.add_stock(0, "ABC", 10, 10)
-        assert db.holding_exists(0, "ABC")
-        assert not db.holding_exists(0, "XYZ")
-
-    def test_get_value(self, db: Database):
-        db.register_user(0)
-        db.add_stock(0, "ABC", 10, 10)
-        assert db.get_value(0, "ABC") == 10
-        assert db.get_value(0, "XYZ") == 0
-        db.add_stock(0, "ABC", 10, 5)
-        assert db.get_value(0, "ABC") == 5
-
-    def test_add_stock(self, db: Database):
-        db.register_user(0)
-        db.add_stock(0, "ABC", 10, 10)
-        result = db.db.execute(
-            "SELECT id, ticker, shares, value FROM HOLDINGS WHERE id = 0 AND ticker = 'ABC'"
-        ).fetchone()
-        assert result[2] == 10
-        assert result[3] == 10
-        db.add_stock(0, "ABC", 10, 5)
-        result = db.db.execute(
-            "SELECT id, ticker, shares, value FROM HOLDINGS WHERE id = 0 AND ticker = 'ABC'"
-        ).fetchone()
-        assert result[2] == 20
-        assert result[3] == 5
 
     def test_buy_stock(self, db: Database):
         db.register_user(0)
         db.buy_stock(0, "ABC", 5, 1000)
         assert db.get_cash(0) == 5000
         assert db.get_shares(0, "ABC") == 5
-        assert db.get_value(0, "ABC") == 1000
         with pytest.raises(NotEnoughCashException):
             assert db.buy_stock(0, "ABC", 10000, 10000)
         with pytest.raises(InvalidSharesException):
@@ -107,8 +77,49 @@ class TestDatabase:
             assert db.sell_stock(0, "ABC", 6, 1000)
         db.sell_stock(0, "ABC", 3, 1200)
         assert db.get_shares(0, "ABC") == 2
-        assert db.get_value(0, "ABC") == 1200
         db.sell_stock(0, "ABC", 2, 1500)
         assert db.get_shares(0, "ABC") == 0
-        assert db.get_value(0, "ABC") == 0
-        assert not db.holding_exists(0, "ABC")
+
+    def test_delete_holdings(self, db: Database):
+        db.register_user(0)
+        db.buy_stock(0, "ABC", 10, 10)
+        assert db.get_shares(0, "ABC") == 10
+        db.delete_holdings(0, "ABC")
+        assert db.get_shares(0, "ABC") == 0
+
+    def test_get_profit(self, db: Database):
+        db.register_user(0)
+        db.buy_stock(0, "ABC", 10, 10)
+        assert db.get_profit(0, "ABC", 10) == 0
+        assert db.get_profit(0, "ABC", 20) == 100
+        db.buy_stock(0, "ABC", 10, 20)
+        assert db.get_profit(0, "ABC", 10) == 100  # 10 shares have been shorted
+        assert db.get_profit(0, "ABC", 20) == 100
+        assert db.get_profit(0, "ABC", 5) == 5 * 10 + 15 * 10  # 20 shares shorted
+        db.sell_stock(0, "ABC", 10, 20)
+        assert db.get_profit(0, "ABC", 10) == 0
+        assert db.get_profit(0, "ABC", 20) == 100
+        db.sell_stock(0, "ABC", 10, 30)
+        assert db.get_profit(0, "ABC", 10) == 0
+        assert db.get_profit(0, "ABC", 20) == 0
+
+    def test_get_value(self, db: Database):
+        db.register_user(0)
+        db.buy_stock(0, "ABC", 10, 10)
+        assert db.get_value(0, "ABC", 10) == 100
+        assert db.get_value(0, "ABC", 20) == 200
+        assert db.get_value(0, "ABC", 0) == 200  # Shorted
+        db.buy_stock(0, "ABC", 10, 20)
+        assert db.get_value(0, "ABC", 10) == 10 * 10 + 30 * 10  # Shorted
+        assert db.get_value(0, "ABC", 5) == 15 * 10 + 35 * 10  # Shorted
+        assert db.get_value(0, "ABC", 30) == 30 * 20
+        db.sell_stock(0, "ABC", 10, 15)
+        assert db.get_value(0, "ABC", 20) == 10 * 20 + 10 * 20 - 10 * 20
+
+    def test_get_holdings(self, db: Database):
+        db.register_user(0)
+        db.buy_stock(0, "XYZ", 10, 10)
+        db.buy_stock(0, "ABC", 10, 10)
+        holdings = db.get_holdings(0)
+        assert next(holdings).ticker == "ABC"
+        assert next(holdings).ticker == "XYZ"

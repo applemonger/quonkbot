@@ -76,30 +76,24 @@ async def holdings(ctx: lightbulb.Context) -> None:
     stocks = ""
     shares = ""
     values = ""
-    sold_holdings = []
     # Get ticker information
-    for holding in db.get_holdings(int(ctx.author.id)):
+    for holding in db.get_holdings(member_id):
+        # Get current price
         ticker = yf.Ticker(holding.ticker)
         price = ticker.info.get("currentPrice")
-        if price < holding.value:
-            logging.info(f"{price}, {holding.value}")
-            db.sell_stock(member_id, holding.ticker, holding.shares, holding.value)
-            sold_holdings.append(holding)
-        else:
-            total += price * holding.shares
-            values += f"${price * holding.shares:.2f}"
-            stocks += f"{holding.ticker}\n"
-            shares += f"{holding.shares}\n"
+        # Calculate current value based on current price
+        value = db.get_value(member_id, holding.ticker, price)
+        # Add the value to our total value
+        total += price * holding.shares
+        # Add the stats to the embed field values
+        stocks += f"{holding.ticker}\n"
+        shares += f"{holding.shares}\n"
+        values += f"${value:.2f}\n"
     # Add embed fields
     if stocks != "":
         embed.add_field(name="Stock", value=stocks, inline=True)
-        embed.add_field(name="Shares", value=shares, inline=True)
+        embed.add_field(name="Q-Shares", value=shares, inline=True)
         embed.add_field(name="Value", value=values, inline=True)
-    # Stocks that were definitely sold before the price went down
-    if sold_holdings:
-        stonks = ", ".join([x.ticker for x in sold_holdings])
-        value = f"You sold the following stocks for cash: {stonks}"
-        embed.add_field(name="Remember, stocks only go up :)", value=value)
     # Add cash
     cash_value = db.get_cash(member_id)
     total += cash_value
@@ -111,7 +105,7 @@ async def holdings(ctx: lightbulb.Context) -> None:
 
 
 @bot.command
-@lightbulb.option("shares", "Number of shares to buy", type=int)
+@lightbulb.option("shares", "Number of shares to buy", type=int, min_value=1)
 @lightbulb.option("ticker", "The stock you want to buy", type=str)
 @lightbulb.command("buy", "Buy stocks")
 @lightbulb.implements(lightbulb.SlashCommand)
@@ -151,7 +145,9 @@ async def buy(ctx: lightbulb.Context):
 
 
 @bot.command
-@lightbulb.option("shares", "Number of shares you would like to sell", type=int)
+@lightbulb.option(
+    "shares", "Number of shares you would like to sell", type=int, min_value=1
+)
 @lightbulb.option("ticker", "The stock you would like to sell", type=str)
 @lightbulb.command("sell", "Sell stocks")
 @lightbulb.implements(lightbulb.SlashCommand)

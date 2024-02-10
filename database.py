@@ -19,10 +19,9 @@ class NotEnoughCashException(Exception):
 
 
 class Holding:
-    def __init__(self, ticker: str, shares: int, value: float):
+    def __init__(self, ticker: str, shares: int):
         self.ticker = ticker
         self.shares = shares
-        self.value = value
 
 
 class Database:
@@ -46,7 +45,7 @@ class Database:
                 id BIGINT, 
                 ticker VARCHAR, 
                 shares INTEGER, 
-                value DECIMAL({self.PRECISION}, {self.SCALE})
+                price DECIMAL({self.PRECISION}, {self.SCALE})
             );
         """
         )
@@ -78,66 +77,58 @@ class Database:
         cash = self.get_cash(member_id) + delta
         self.db.execute("UPDATE CASH SET cash = ? WHERE id = ?", [cash, member_id])
 
-    def holding_exists(self, member_id: int, ticker: str) -> bool:
-        query = """
-            SELECT COUNT(*) 
-            FROM HOLDINGS
-            WHERE id = ? AND ticker = ?
-        """
-        result = self.db.execute(query, [member_id, ticker]).fetchone()
-        holding_exists = int(result[0])
-        return holding_exists == 1
-
     def get_shares(self, member_id: int, ticker: str) -> int:
         query = """
-            SELECT shares
+            SELECT SUM(shares)
             FROM HOLDINGS 
             WHERE id = ? AND ticker = ?
         """
         result = self.db.execute(query, [member_id, ticker]).fetchone()
-        if result is None:
+        if result[0] is None:
             return 0
         else:
             return int(result[0])
 
-    def get_value(self, member_id: int, ticker: str) -> float:
+    def get_holdings(self, member_id: int) -> Iterator[Holding]:
         query = """
-            SELECT value
-            FROM HOLDINGS 
-            WHERE id = ? AND ticker = ?
+            SELECT
+                ticker,
+                SUM(shares) AS shares,
+            FROM HOLDINGS
+            WHERE id = ?
+            GROUP BY ticker
+            ORDER BY ticker
         """
-        result = self.db.execute(query, [member_id, ticker]).fetchone()
+        holdings = self.db.execute(query, [member_id]).fetchall()
+        for holding in holdings:
+            yield Holding(holding[0], int(holding[1]))
+
+    def add_holding(self, member_id: int, ticker: str, delta_shares: int, price: float):
+        query = "INSERT INTO HOLDINGS VALUES (?, ?, ?, ?)"
+        self.db.execute(query, [member_id, ticker, delta_shares, price])
+
+    def get_profit(self, member_id: int, ticker: str, price: float):
+        query = """
+            SELECT SUM(shares * ABS(price - ?))
+            FROM HOLDINGS
+            WHERE id = ? AND ticker = ?
+            GROUP BY id, ticker
+        """
+        result = self.db.execute(query, [price, member_id, ticker]).fetchone()
         if result is None:
             return 0
         else:
             return self.trunc(result[0])
 
-    def get_holdings(self, member_id: int) -> Iterator[Holding]:
-        query = "SELECT * FROM HOLDINGS WHERE id = ?"
-        holdings = self.db.execute(query, [member_id]).fetchall()
-        for holding in holdings:
-            yield Holding(holding[1], int(holding[2]), self.trunc(holding[3]))
-
-    def add_stock(self, member_id: int, ticker: str, delta_shares: int, price: float):
-        # If the member already owns some shares of this ticker
-        if self.holding_exists(member_id, ticker):
-            # Add these shares to their holdings
-            current_shares = self.get_shares(member_id, ticker)
-            total_shares = current_shares + delta_shares
-            if total_shares == 0:
-                query = "DELETE FROM HOLDINGS WHERE id = ? AND ticker = ?"
-                self.db.execute(query, [member_id, ticker])
-            else:
-                query = """
-                    UPDATE HOLDINGS 
-                    SET shares = ?, value = ?
-                    WHERE id = ? AND ticker = ?
-                """
-                self.db.execute(query, [total_shares, price, member_id, ticker])
-        # Otherwise, make a new entry for them
-        else:
-            query = "INSERT INTO HOLDINGS VALUES (?, ?, ?, ?)"
-            self.db.execute(query, [member_id, ticker, delta_shares, price])
+    def get_value(self, member_id: int, ticker: str, price: float):
+        query = """
+            SELECT SUM(shares * (price + ABS(price - ?)))
+            FROM HOLDINGS
+            WHERE id = ? AND ticker = ?
+            GROUP BY id, ticker
+        """
+        result = self.db.execute(query, [price, member_id, ticker]).fetchone()
+        return self.trunc(result[0])
 
     def buy_stock(self, member_id: int, ticker: str, shares: int, price: float):
         # Reject attempts to buy zero or negative shares.
@@ -155,7 +146,7 @@ class Database:
             # Otherwise, they have enough cash. Convert the cash to shares.
             cost = shares * price
             self.add_cash(member_id, cost * -1)
-            self.add_stock(member_id, ticker, shares, price)
+            self.add_holding(member_id, ticker, shares, price)
 
     def sell_stock(self, member_id: int, ticker: str, shares: int, price: float):
         # Reject attempts to buy zero or negative shares.
@@ -170,7 +161,13 @@ class Database:
             # Otherwise, they have enough shares. Convert shares to cash
             cash = shares * price
             self.add_cash(member_id, cash)
-            self.add_stock(member_id, ticker, -shares, price)
+            self.add_holding(member_id, ticker, -shares, price)
+            if self.get_shares(member_id, ticker) == 0:
+                self.delete_holdings(member_id, ticker)
+
+    def delete_holdings(self, member_id: int, ticker: str):
+        query = "DELETE FROM HOLDINGS WHERE id = ? AND ticker = ?"
+        self.db.execute(query, [member_id, ticker])
 
     def clear(self):
         self.db.execute("DROP TABLE MEMBERS;")
