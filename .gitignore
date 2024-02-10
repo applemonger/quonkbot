@@ -3,4 +3,5 @@ venv/
 *.db
 *.wal
 .pytest_cache
+.ruff_cache
 __pycache__
