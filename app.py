@@ -9,6 +9,7 @@ from database import (
     NotEnoughCashException,
     UserExistsException,
 )
+from textwrap import dedent
 
 load_dotenv()
 
@@ -27,6 +28,32 @@ db = Database()
 def get_stock_price(ticker: str) -> float:
     yf_ticker = yf.Ticker(ticker)
     return yf_ticker.info.get("currentPrice")
+
+
+@bot.command
+@lightbulb.command("help", "Learn more about QStonks!")
+@lightbulb.implements(lightbulb.SlashCommand)
+async def help(ctx: lightbulb.Context) -> None:
+    embed = hikari.Embed(title="Stonqy Help", color=COLOR)
+    value = """
+        QStonks allows you to paper trade Q-shares of most known stocks. 
+        1. Use the `/register` command to get started with a cash balance of $10,000.
+        2. Use the `/quote` command to get price quotes on stocks.
+        3. Use the `/buy` command to buy shares of stocks.
+        4. Use the `/holdings` command to check the value of your owned stocks.
+        5. Use the `/sell` command to sell stocks.
+    """
+    embed.add_field(name="Getting Started", value=dedent(value))
+    value = """
+        Q-shares, or Quantum Shares are a dream come true. Built with state of the art 
+        science, Q-shares are shares that exist in a simultaneous state of long and 
+        short. With our patented quantum entanglement technology, Q-shares are short 
+        when the current price of the stock is lower than when you originally bought 
+        them, and long when it is higher. This means your Q-shares always go up! You 
+        simply can't lose money. Isn't that wonderful?
+    """
+    embed.add_field(name="What are Q-Shares?", value=dedent(value))
+    await ctx.respond(embed)
 
 
 @bot.command
