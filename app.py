@@ -1,7 +1,6 @@
 import lightbulb
 import hikari
 import os
-from dotenv import load_dotenv
 import yfinance as yf
 import logging
 from database import (
@@ -10,6 +9,7 @@ from database import (
     UserExistsException,
 )
 from textwrap import dedent
+from dotenv import load_dotenv
 
 load_dotenv()
 
