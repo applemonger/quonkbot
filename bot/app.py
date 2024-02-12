@@ -162,7 +162,7 @@ async def sell(ctx: lightbulb.Context):
 
 
 @bot.command
-@lightbulb.command("leaderboard", "Top quonk traders", guilds=[1204946032807645304])
+@lightbulb.command("leaderboard", "Top quonk traders")
 @lightbulb.implements(lightbulb.SlashCommand)
 async def leaderboard(ctx: lightbulb.Context):
     # Create embed
