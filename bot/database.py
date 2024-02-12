@@ -1,9 +1,6 @@
 import duckdb
 import os
-from dotenv import load_dotenv
 from typing import Iterator
-
-load_dotenv()
 
 
 class UserExistsException(Exception):
@@ -23,9 +20,40 @@ class InvalidSharesException(Exception):
 
 
 class Holding:
-    def __init__(self, ticker: str, shares: int):
+    def __init__(self, db: "Database", member_id: int, ticker: str):
+        self.db = db
+        self.member_id = member_id
         self.ticker = ticker
-        self.shares = shares
+
+    @property
+    def shares(self):
+        query = """
+            SELECT shares
+            FROM HOLDINGS
+            WHERE id = ? AND ticker = ?
+        """
+        result = self.db.db.execute(query, [self.member_id, self.ticker]).fetchone()
+        return int(result[0])
+
+    @property
+    def price(self):
+        query = """
+            SELECT price
+            FROM HOLDINGS
+            WHERE id = ? AND ticker = ?
+        """
+        result = self.db.db.execute(query, [self.member_id, self.ticker]).fetchone()
+        return self.db.trunc(result[0])
+
+    @property
+    def value(self):
+        query = """
+            SELECT value
+            FROM HOLDINGS
+            WHERE id = ? AND ticker = ?
+        """
+        result = self.db.db.execute(query, [self.member_id, self.ticker]).fetchone()
+        return self.db.trunc(result[0])
 
 
 class Database:
@@ -49,7 +77,8 @@ class Database:
                 id BIGINT, 
                 ticker VARCHAR, 
                 shares INTEGER, 
-                price DECIMAL({self.PRECISION}, {self.SCALE})
+                price DECIMAL({self.PRECISION}, {self.SCALE}),
+                value DECIMAL({self.PRECISION}, {self.SCALE})
             );
         """
         )
@@ -99,61 +128,71 @@ class Database:
 
     def get_holdings(self, member_id: int) -> Iterator[Holding]:
         query = """
-            SELECT
-                ticker,
-                SUM(shares) AS shares,
+            SELECT id, ticker
             FROM HOLDINGS
             WHERE id = ?
-            GROUP BY ticker
             ORDER BY ticker
         """
         holdings = self.db.execute(query, [member_id]).fetchall()
         for holding in holdings:
-            yield Holding(holding[0], int(holding[1]))
+            yield Holding(
+                db=self,
+                member_id=member_id,
+                ticker=holding[1],
+            )
 
-    def add_holding(self, member_id: int, ticker: str, delta_shares: int, price: float):
-        query = "INSERT INTO HOLDINGS VALUES (?, ?, ?, ?)"
-        self.db.execute(query, [member_id, ticker, delta_shares, price])
+    def get_holding(self, member_id: int, ticker: str) -> Holding:
+        return Holding(db=self, member_id=member_id, ticker=ticker)
 
-    def get_profit(self, member_id: int, ticker: str, price: float):
-        query = """
-            SELECT SUM(shares * ABS(price - ?))
-            FROM HOLDINGS
-            WHERE id = ? AND ticker = ?
-            GROUP BY id, ticker
+    def observe_price(self, member_id: int, ticker: str, price: float):
         """
-        result = self.db.execute(query, [price, member_id, ticker]).fetchone()
-        if result is None:
-            return 0
-        else:
-            return self.trunc(result[0])
-
-    def get_value(self, member_id: int, ticker: str, price: float):
-        query = """
-            SELECT SUM(shares * (price + ABS(price - ?)))
-            FROM HOLDINGS
-            WHERE id = ? AND ticker = ?
-            GROUP BY id, ticker
+        Observation of price changes (always increases) the value of Quonks. If the
+        observed price is higher than the last observed price, then the Quonks were
+        long, and that value is accumulated. If the observed price is lower than the
+        last observed price, then the Quonks were short, and the short value is
+        accumulated.
         """
-        result = self.db.execute(query, [price, member_id, ticker]).fetchone()
-        return self.trunc(result[0])
+        query = """
+            UPDATE HOLDINGS
+            SET value = value + (shares * ABS(price - ?)), price = ?
+            WHERE id = ? AND ticker = ?
+        """
+        self.db.execute(query, [price, price, member_id, ticker])
 
-    def buy_stock(self, member_id: int, ticker: str, shares: int, price: float):
+    def buy_quonks(self, member_id: int, ticker: str, shares: int, price: float):
         # Get current cash on hand
         cash = self.get_cash(member_id)
         # Reject attempts to buy more than they have cash for
         if shares * price > cash:
             limit = int(cash / price)
-            raise NotEnoughCashException(
-                f"You only have enough to buy {limit} shares of ${ticker}."
-            )
+            if limit > 0:
+                raise NotEnoughCashException(
+                    f"You only have enough to buy {limit} shares of ${ticker}."
+                )
+            else:
+                raise NotEnoughCashException(
+                    f"You do not have enough cash to buy any shares of ${ticker}"
+                )
         else:
             # Otherwise, they have enough cash. Convert the cash to shares.
             cost = shares * price
             self.add_cash(member_id, cost * -1)
-            self.add_holding(member_id, ticker, shares, price)
+            self.observe_price(member_id, ticker, price)
+            if self.get_shares(member_id, ticker) == 0:
+                query = "INSERT INTO HOLDINGS VALUES (?, ?, ?, ?, ?)"
+                value = shares * price
+                self.db.execute(query, [member_id, ticker, shares, price, value])
+            else:
+                query = """
+                    UPDATE HOLDINGS
+                    SET shares = shares + ?, value = value + (? * price)
+                    WHERE id = ? AND ticker = ?
+                """
+                self.db.execute(query, [shares, shares, member_id, ticker])
 
-    def sell_stock(self, member_id: int, ticker: str, shares: int, price: float):
+    def sell_quonks(
+        self, member_id: int, ticker: str, shares: int, price: float
+    ) -> float:
         # Get current number of shares.
         current_holding = self.get_shares(member_id, ticker)
         # Reject attempts to sell more shares than they own.
@@ -161,11 +200,26 @@ class Database:
             raise InvalidSharesException("You cannot sell more shares than you own.")
         else:
             # Otherwise, they have enough shares. Convert shares to cash
-            cash = shares * price
-            self.add_cash(member_id, cash)
-            self.add_holding(member_id, ticker, -shares, price)
+            # Observe the selling price
+            self.observe_price(member_id, ticker, price)
+            query = """
+                SELECT value / shares
+                FROM HOLDINGS
+                WHERE id = ? AND ticker = ?
+            """
+            result = self.db.execute(query, [member_id, ticker]).fetchone()
+            quonk_price = self.trunc(result[0])
+            quonk_value = quonk_price * shares
+            self.add_cash(member_id, quonk_value)
+            query = """
+                UPDATE HOLDINGS
+                SET shares = shares - ?, value = value - ?
+                WHERE id = ? AND ticker = ?
+            """
+            self.db.execute(query, [shares, quonk_value, member_id, ticker])
             if self.get_shares(member_id, ticker) == 0:
                 self.delete_holdings(member_id, ticker)
+            return quonk_price
 
     def delete_holdings(self, member_id: int, ticker: str):
         query = "DELETE FROM HOLDINGS WHERE id = ? AND ticker = ?"
