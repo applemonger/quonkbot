@@ -56,6 +56,12 @@ class Holding:
         return self.db.trunc(result[0])
 
 
+class Leader:
+    def __init__(self, member_id: int, value: float):
+        self.member_id = member_id
+        self.value = value
+
+
 class Database:
     PRECISION = 18
     SCALE = 6
@@ -224,6 +230,20 @@ class Database:
     def delete_holdings(self, member_id: int, ticker: str):
         query = "DELETE FROM HOLDINGS WHERE id = ? AND ticker = ?"
         self.db.execute(query, [member_id, ticker])
+
+    def leaderboard(self):
+        query = """
+            SELECT a.id, SUM(a.value), SUM(b.cash)
+            FROM HOLDINGS a
+            LEFT JOIN CASH b ON a.id = b.id
+            GROUP BY a.id
+            ORDER BY SUM(a.value) DESC
+            LIMIT 10
+        """
+        for leader in self.db.execute(query).fetchall():
+            yield Leader(
+                member_id=leader[0], value=self.trunc(leader[1]) + self.trunc(leader[2])
+            )
 
     def clear(self):
         self.db.execute("DROP TABLE MEMBERS;")

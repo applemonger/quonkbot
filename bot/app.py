@@ -161,5 +161,20 @@ async def sell(ctx: lightbulb.Context):
     )
 
 
+@bot.command
+@lightbulb.command("leaderboard", "Top quonk traders", guilds=[1204946032807645304])
+@lightbulb.implements(lightbulb.SlashCommand)
+async def leaderboard(ctx: lightbulb.Context):
+    # Create embed
+    embed = hikari.Embed(title="Top Quonkers", color=COLOR)
+    # Get leaderboard values
+    leaders = ""
+    for i, leader in enumerate(db.leaderboard()):
+        leaders += f"#{i+1}. <@{leader.member_id}> ${leader.value:,.2f}\n"
+    # Add embed fields
+    embed.add_field("Cash + Quonk Value", value=leaders, inline=True)
+    await ctx.respond(embed)
+
+
 if __name__ == "__main__":
     bot.run()
