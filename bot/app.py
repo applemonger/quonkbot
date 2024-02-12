@@ -172,6 +172,8 @@ async def leaderboard(ctx: lightbulb.Context):
     for i, leader in enumerate(db.leaderboard()):
         leaders += f"#{i+1}. <@{leader.member_id}> ${leader.value:,.2f}\n"
     # Add embed fields
+    if leaders == "":
+        leaders = "No Quonkers here :("
     embed.add_field("Cash + Quonk Value", value=leaders, inline=True)
     await ctx.respond(embed)
 

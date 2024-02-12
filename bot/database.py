@@ -235,7 +235,7 @@ class Database:
         query = """
             SELECT a.id, SUM(a.value), SUM(b.cash)
             FROM HOLDINGS a
-            LEFT JOIN CASH b ON a.id = b.id
+            INNER JOIN CASH b ON a.id = b.id
             GROUP BY a.id
             ORDER BY SUM(a.value) DESC
             LIMIT 10
