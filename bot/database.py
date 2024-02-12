@@ -233,10 +233,10 @@ class Database:
 
     def leaderboard(self):
         query = """
-            SELECT a.id, SUM(a.value), SUM(b.cash)
-            FROM HOLDINGS a
-            INNER JOIN CASH b ON a.id = b.id
-            GROUP BY a.id
+            SELECT b.id, COALESCE(SUM(a.value), 0), SUM(b.cash)
+            FROM CASH b
+            LEFT JOIN HOLDINGS a ON a.id = b.id
+            GROUP BY b.id
             ORDER BY SUM(a.value) DESC
             LIMIT 10
         """
