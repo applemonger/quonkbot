@@ -34,4 +34,4 @@ USER appuser
 COPY bot bot
 
 # Run the application
-ENTRYPOINT ["python", "bot/app.py"]
+ENTRYPOINT ["python", "-O", "bot/app.py"]

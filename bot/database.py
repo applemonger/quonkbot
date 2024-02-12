@@ -233,17 +233,21 @@ class Database:
 
     def leaderboard(self):
         query = """
-            SELECT b.id, COALESCE(SUM(a.value), 0), SUM(b.cash)
-            FROM CASH b
-            LEFT JOIN HOLDINGS a ON a.id = b.id
-            GROUP BY b.id
-            ORDER BY SUM(a.value) DESC
+            SELECT a.id, a.cash, COALESCE(b.value, 0)
+            FROM CASH a
+            LEFT JOIN (
+                SELECT id, SUM(value) AS value
+                FROM HOLDINGS
+                GROUP BY id
+            ) b
+            ON a.id = b.id
+            ORDER BY COALESCE(b.value, 0)
             LIMIT 10
         """
         for leader in self.db.execute(query).fetchall():
-            yield Leader(
-                member_id=leader[0], value=self.trunc(leader[1]) + self.trunc(leader[2])
-            )
+            value = self.trunc(leader[1])
+            cash = self.trunc(leader[2])
+            yield Leader(member_id=leader[0], value=cash + value)
 
     def clear(self):
         self.db.execute("DROP TABLE MEMBERS;")
