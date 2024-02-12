@@ -241,7 +241,7 @@ class Database:
                 GROUP BY id
             ) b
             ON a.id = b.id
-            ORDER BY COALESCE(b.value, 0)
+            ORDER BY COALESCE(b.value, 0) DESC
             LIMIT 10
         """
         for leader in self.db.execute(query).fetchall():
