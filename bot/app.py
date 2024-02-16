@@ -89,7 +89,7 @@ async def holdings(ctx: lightbulb.Context) -> None:
     # Create embed field values
     tickers = ""
     quonks = ""
-    values = ""
+    profits = ""
     # Get ticker information
     for holding in db.get_holdings(member_id):
         # Get current price
@@ -98,17 +98,18 @@ async def holdings(ctx: lightbulb.Context) -> None:
         db.observe_price(member_id, holding.ticker, price)
         # Get observed
         # Add the value to our total value
-        value = holding.value
-        total += value
+        total += holding.value
+        # Calculate profit
+        profit = holding.value - (holding.shares * price)
         # Add the stats to the embed field values
         tickers += f"{holding.ticker}\n"
         quonks += f"{holding.shares}\n"
-        values += f"${value:.2f}\n"
+        profits += f"${profit:.2f}\n"
     # Add embed fields
     if tickers != "":
         embed.add_field(name="Ticker", value=tickers, inline=True)
         embed.add_field(name="Quonks", value=quonks, inline=True)
-        embed.add_field(name="Value", value=values, inline=True)
+        embed.add_field(name="Profit", value=profits, inline=True)
     # Add cash
     cash_value = db.get_cash(member_id)
     total += cash_value
