@@ -74,14 +74,7 @@ async def quote(ctx: lightbulb.Context) -> None:
     await ctx.respond(embed, flags=hikari.MessageFlag.EPHEMERAL)
 
 
-@bot.command
-@lightbulb.command("holdings", "Shows your current Quonk holdings and values")
-@lightbulb.implements(lightbulb.SlashCommand)
-@handle_exceptions(QuoteException, UserDoesNotExistException)
-async def holdings(ctx: lightbulb.Context) -> None:
-    # Format and validate user
-    member_id = int(ctx.author.id)
-    db.validate_user(member_id)
+def create_holdings_embed(member_id: int) -> hikari.Embed:
     # Create embed
     embed = hikari.Embed(title="Your Holdings", color=COLOR)
     # Track total
@@ -102,7 +95,7 @@ async def holdings(ctx: lightbulb.Context) -> None:
         # Calculate profit
         profit = holding.value - (holding.shares * price)
         # Add the stats to the embed field values
-        tickers += f"{holding.ticker}\n"
+        tickers += f"{holding.ticker} @ ${price:.2f}\n"
         quonks += f"{holding.shares}\n"
         profits += f"${profit:.2f}\n"
     # Add embed fields
@@ -116,8 +109,44 @@ async def holdings(ctx: lightbulb.Context) -> None:
     embed.add_field(name="Cash", value=f"${cash_value:.2f}")
     # Add total
     embed.add_field(name="Total Value", value=f"${total:.2f}")
+    # Add observe button
+    row = bot.rest.build_message_action_row()
+    row.add_interactive_button(hikari.ButtonStyle.PRIMARY, "observe", label="Observe")
+    return embed, row
+
+
+@bot.command
+@lightbulb.command("holdings", "Shows your current Quonk holdings and values")
+@lightbulb.implements(lightbulb.SlashCommand)
+@handle_exceptions(QuoteException, UserDoesNotExistException)
+async def holdings(ctx: lightbulb.Context) -> None:
+    # Format and validate user
+    member_id = int(ctx.author.id)
+    db.validate_user(member_id)
+    # Create embed
+    embed, row = create_holdings_embed(member_id)
     # Response
-    await ctx.respond(embed, flags=hikari.MessageFlag.EPHEMERAL)
+    await ctx.respond(embed, flags=hikari.MessageFlag.EPHEMERAL, component=row)
+
+
+@bot.listen(hikari.InteractionCreateEvent)
+async def on_component_interaction(event: hikari.InteractionCreateEvent) -> None:
+    if not isinstance(event.interaction, hikari.ComponentInteraction):
+        return
+
+    if event.interaction.custom_id == "observe":
+        # Format and validate user
+        member_id = int(event.interaction.member.id)
+        db.validate_user(member_id)
+        # Create embed
+        embed, row = create_holdings_embed(member_id)
+        # Response
+        await event.interaction.create_initial_response(
+            hikari.ResponseType.MESSAGE_CREATE,
+            embed,
+            component=row,
+            flags=hikari.MessageFlag.EPHEMERAL,
+        )
 
 
 @bot.command
